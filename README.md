@@ -20,8 +20,9 @@ A tiny script that yells, 'Why the fuck isn't there a setting for this?'---becau
 
 **Installation**
 
-- Copy the script.
-- Run it as root.
+- `make`
+- `sudo make install`
+- `sudo launchctl start il.luminati.mtuprotect`
 - Pretend this is a permanent fix.
 
 ---
