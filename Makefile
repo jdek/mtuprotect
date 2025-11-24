@@ -11,10 +11,11 @@ MACOS = $(CONTENTS)/MacOS
 RESOURCES = $(CONTENTS)/Resources
 
 # Installation paths
-INSTALL_DIR = /Applications
-DAEMON_DIR = /Library/Application Support/MTUProtect
+DESTDIR ?=
+INSTALL_DIR = $(DESTDIR)/Applications
+DAEMON_DIR = $(DESTDIR)/Library/Application Support/MTUProtect
 DAEMON_PATH = $(DAEMON_DIR)/mtuprotect-daemon
-LAUNCHDAEMON_DIR = /Library/LaunchDaemons
+LAUNCHDAEMON_DIR = $(DESTDIR)/Library/LaunchDaemons
 PLIST_PATH = $(LAUNCHDAEMON_DIR)/il.luminati.mtuprotect.plist
 SOCKET_PATH = /tmp/mtuprotect.sock
 LOG_PATH = /var/log/mtuprotect.log
@@ -62,7 +63,7 @@ app: daemon
 
 daemon:
 	@echo "Building daemon..."
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p "$(BUILD_DIR)"
 	@$(SWIFTC) -o $(BUILD_DIR)/mtuprotect-daemon mtuprotect.swift $(DAEMON_FRAMEWORKS)
 	@echo "✓ Built: $(BUILD_DIR)/mtuprotect-daemon"
 
@@ -89,7 +90,8 @@ install-daemon: daemon
 	@mkdir -p "$(DAEMON_DIR)"
 	@cp $(BUILD_DIR)/mtuprotect-daemon "$(DAEMON_PATH)"
 	@chmod 755 "$(DAEMON_PATH)"
-	@chown root:wheel "$(DAEMON_PATH)"
+	@if [ -z "$(DESTDIR)" ]; then chown root:wheel "$(DAEMON_PATH)"; fi
+	@mkdir -p "$(LAUNCHDAEMON_DIR)"
 	@echo "Creating LaunchDaemon plist..."
 	@echo '<?xml version="1.0" encoding="UTF-8"?>' | tee "$(PLIST_PATH)" > /dev/null
 	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' | tee -a "$(PLIST_PATH)" > /dev/null
@@ -112,13 +114,14 @@ install-daemon: daemon
 	@echo '</dict>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@echo '</plist>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@chmod 644 "$(PLIST_PATH)"
-	@chown root:wheel "$(PLIST_PATH)"
-	@launchctl unload "$(PLIST_PATH)" 2>/dev/null || true
-	@launchctl load "$(PLIST_PATH)"
+	@if [ -z "$(DESTDIR)" ]; then chown root:wheel "$(PLIST_PATH)"; fi
+	@if [ -z "$(DESTDIR)" ]; then launchctl unload "$(PLIST_PATH)" 2>/dev/null || true; fi
+	@if [ -z "$(DESTDIR)" ]; then launchctl load "$(PLIST_PATH)"; fi
 	@echo "✓ Daemon installed and started"
 
 install-app: app
 	@echo "Installing app to $(INSTALL_DIR)..."
+	@mkdir -p "$(INSTALL_DIR)"
 	@rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
 	@cp -R $(APP_BUNDLE) "$(INSTALL_DIR)/"
 	@echo "✓ App installed"
