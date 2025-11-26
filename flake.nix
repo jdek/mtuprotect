@@ -20,17 +20,33 @@
       darwinModules.mtuprotect = { config, lib, pkgs, ... }:
         with lib;
         let
-          cfg = config.programs.mtuprotect;
+          cfg = config.services.mtuprotect;
           mtuprotect = self.packages.${pkgs.system}.default;
+          daemonArgs = [ "${mtuprotect}/Library/Application Support/MTUProtect/mtuprotect-daemon" ]
+            ++ [ (if cfg.autoWatch then "true" else "false") ]
+            ++ [ cfg.interface ]
+            ++ [ (toString cfg.mtu) ];
         in
         {
-          options.programs.mtuprotect = {
+          options.services.mtuprotect = {
             enable = mkEnableOption "MTUProtect daemon and menu bar app";
 
-            vpnInterface = mkOption {
-              type = types.nullOr types.str;
-              default = null;
-              description = "The VPN interface name (e.g., 'utun3'). Leave null to configure via the menu bar app.";
+            autoWatch = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Automatically launch the menu bar watcher app when the daemon starts.";
+            };
+
+            interface = mkOption {
+              type = types.str;
+              default = "utun4";
+              description = "The VPN interface name (e.g., 'utun4').";
+            };
+
+            mtu = mkOption {
+              type = types.int;
+              default = 1280;
+              description = "The MTU value to set for the VPN interface.";
             };
           };
 
@@ -42,19 +58,13 @@
             launchd.daemons.mtuprotect = {
               serviceConfig = {
                 Label = "il.luminati.mtuprotect";
-                ProgramArguments = [ "${mtuprotect}/Library/Application Support/MTUProtect/mtuprotect-daemon" ];
+                ProgramArguments = daemonArgs;
                 RunAtLoad = true;
                 KeepAlive = true;
                 StandardOutPath = "/var/log/mtuprotect.log";
                 StandardErrorPath = "/var/log/mtuprotect.log";
               };
             };
-
-            # Set VPN interface preference if specified
-            system.activationScripts.postActivation.text = mkIf (cfg.vpnInterface != null) ''
-              echo "Setting MTUProtect VPN interface to ${cfg.vpnInterface}"
-              /usr/bin/defaults write il.luminati.mtuwatch vpnInterface "${cfg.vpnInterface}"
-            '';
           };
         };
 

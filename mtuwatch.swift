@@ -77,9 +77,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var menu: NSMenu!
     var timer: Timer?
     var isDaemonRunning = false
+    private var _daemonConfiguredMTU: UInt32 = 1280
+    private var _daemonConfiguredInterface: String = "utun4"
+    private let configLock = NSLock()
     let socketPath = "/tmp/mtuprotect.sock"
     let defaults = UserDefaults.standard
     let vpnInterfaceKey = "vpnInterface"
+    
+    var daemonConfiguredMTU: UInt32 {
+        get {
+            configLock.lock()
+            defer { configLock.unlock() }
+            return _daemonConfiguredMTU
+        }
+        set {
+            configLock.lock()
+            defer { configLock.unlock() }
+            _daemonConfiguredMTU = newValue
+        }
+    }
+    
+    var daemonConfiguredInterface: String {
+        get {
+            configLock.lock()
+            defer { configLock.unlock() }
+            return _daemonConfiguredInterface
+        }
+        set {
+            configLock.lock()
+            defer { configLock.unlock() }
+            _daemonConfiguredInterface = newValue
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create status bar item with fixed length
@@ -97,9 +126,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initial update
         updateStatus()
 
+        // Sync VPN interface with daemon on startup if daemon is running
+        if isDaemonRunning {
+            syncVPNInterfaceWithDaemon()
+        }
+
         // Start checking daemon status
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStatus()
+        }
+    }
+
+    func syncVPNInterfaceWithDaemon() {
+        let vpnInterface = defaults.string(forKey: vpnInterfaceKey) ?? "utun4"
+        // Only send SET command if the interface differs from daemon's configuration
+        if vpnInterface != daemonConfiguredInterface {
+            _ = sendCommand("SET:\(vpnInterface):\(daemonConfiguredMTU)")
         }
     }
 
@@ -131,6 +173,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateStatus() {
+        let wasRunning = isDaemonRunning
         isDaemonRunning = checkDaemonStatus()
         updateStatusIcon()
 
@@ -141,6 +184,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Update interfaces list
         if isDaemonRunning {
+            // If daemon just started running, send SET command
+            if !wasRunning {
+                syncVPNInterfaceWithDaemon()
+            }
             updateInterfacesList()
         } else {
             clearInterfacesList()
@@ -181,7 +228,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if bytesRead > 0 {
             let response = String(bytes: buffer[0..<bytesRead], encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return response == "OK"
+            // Parse STATUS response: OK:interface:mtu
+            if let response = response, response.hasPrefix("OK") {
+                let parts = response.split(separator: ":")
+                if parts.count == 3 {
+                    daemonConfiguredInterface = String(parts[1])
+                    if let mtuValue = UInt32(parts[2]) {
+                        daemonConfiguredMTU = mtuValue
+                    }
+                }
+                return true
+            }
         }
 
         return false
@@ -340,16 +397,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Set MTU for \(interface)"
-        alert.informativeText = "The daemon will set the MTU to 1280."
-        alert.addButton(withTitle: "Set to 1280")
+        alert.informativeText = "The daemon will set the MTU to \(daemonConfiguredMTU)."
+        alert.addButton(withTitle: "Set to \(daemonConfiguredMTU)")
         alert.addButton(withTitle: "Cancel")
 
         if alert.runModal() == .alertFirstButtonReturn {
-            if let response = sendCommand("SET:\(interface):1280") {
+            if let response = sendCommand("SET:\(interface):\(daemonConfiguredMTU)") {
                 if response.hasPrefix("OK") {
                     let successAlert = NSAlert()
                     successAlert.messageText = "Success"
-                    successAlert.informativeText = "MTU set to 1280 for \(interface)"
+                    successAlert.informativeText = "MTU set to \(daemonConfiguredMTU) for \(interface)"
                     successAlert.runModal()
 
                     // Refresh the list

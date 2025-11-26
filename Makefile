@@ -3,6 +3,11 @@ APP_NAME = MTUProtect
 BUNDLE_ID = il.luminati.mtuwatch
 VERSION = 1.0
 
+# Configuration options
+AUTO_LAUNCH ?= false
+VPN_INTERFACE ?= utun4
+VPN_MTU ?= 1280
+
 # Paths
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
@@ -102,6 +107,9 @@ install-daemon: daemon
 	@echo '    <key>ProgramArguments</key>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@echo '    <array>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@echo '        <string>$(DAEMON_PATH)</string>' | tee -a "$(PLIST_PATH)" > /dev/null
+	@echo '        <string>$(AUTO_LAUNCH)</string>' | tee -a "$(PLIST_PATH)" > /dev/null
+	@echo '        <string>$(VPN_INTERFACE)</string>' | tee -a "$(PLIST_PATH)" > /dev/null
+	@echo '        <string>$(VPN_MTU)</string>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@echo '    </array>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@echo '    <key>RunAtLoad</key>' | tee -a "$(PLIST_PATH)" > /dev/null
 	@echo '    <true/>' | tee -a "$(PLIST_PATH)" > /dev/null

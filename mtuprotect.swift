@@ -3,11 +3,42 @@
 import Foundation
 import SystemConfiguration
 
-let vpn = "utun4"
-let mtu: UInt32 = 1280
+// Parse command line arguments
+// Usage: mtuprotect-daemon [auto_launch] [interface] [mtu]
+let args = CommandLine.arguments
+var autoLaunch = false
+var _interface = "utun4"
+var _mtu: UInt32 = 1280
+
+if args.count >= 2 {
+    autoLaunch = (args[1].lowercased() == "true" || args[1] == "1")
+}
+if args.count >= 3 {
+    _interface = args[2]
+}
+if args.count >= 4 {
+    if let mtu = UInt32(args[3]) {
+        _mtu = mtu
+    }
+}
+
 let socketPath = "/tmp/mtuprotect.sock"
 let appBundleId = "il.luminati.mtuwatch"
 var socketSource: DispatchSourceRead?
+
+// Thread-safe access to vpn/mtu configuration
+let configLock = NSLock()
+func getConfig() -> (interface: String, mtu: UInt32) {
+    configLock.lock()
+    defer { configLock.unlock() }
+    return (_interface, _mtu)
+}
+func setConfig(interface: String, mtu: UInt32) {
+    configLock.lock()
+    defer { configLock.unlock() }
+    _interface = interface
+    _mtu = mtu
+}
 
 setlinebuf(stdout)
 
@@ -46,10 +77,11 @@ func launchAppForUser() {
 
 guard let store = SCDynamicStoreCreate(nil, "MTUMonitor" as CFString, { _, changed, _ in
     guard let keys = changed as? [String], keys.contains(where: { $0.contains("gpd.pan") }) else { return }
-    let current = getMTU(vpn)
-    if current != mtu {
-        print("Setting \(vpn) MTU to \(mtu) (was \(current)).")
-        setMTU(vpn, mtu)
+    let config = getConfig()
+    let current = getMTU(config.interface)
+    if current != config.mtu {
+        print("Setting \(config.interface) MTU to \(config.mtu) (was \(current)).")
+        setMTU(config.interface, config.mtu)
         // Launch the app when VPN connects (if not already running)
         launchAppForUser()
     }
@@ -185,14 +217,18 @@ func handleClient(_ clientfd: Int32) {
     var response = ""
 
     if message == "STATUS" {
-        response = "OK\n"
+        let config = getConfig()
+        response = "OK:\(config.interface):\(config.mtu)\n"
     } else if message == "LIST" {
         let interfaces = getAllInterfaces()
         response = interfaces.map { "\($0.0):\($0.1)" }.joined(separator: "\n") + "\n"
     } else if message.hasPrefix("SET:") {
         let parts = message.dropFirst(4).split(separator: ":")
-        if parts.count == 2, let interface = parts.first, let mtuValue = UInt32(parts.last!) {
-            setMTU(String(interface), mtuValue)
+        if parts.count == 2, let mtu = UInt32(parts.last!) {
+            let interface = String(parts.first!)
+            setConfig(interface: interface, mtu: mtu)
+            setMTU(interface, mtu)
+            print("Updated VPN interface to \(interface) with MTU \(mtu)")
             response = "OK\n"
         } else {
             response = "ERROR:Invalid SET command\n"
@@ -209,6 +245,14 @@ func handleClient(_ clientfd: Int32) {
     }
 }
 
-print("Monitoring GlobalProtect on \(vpn), will set MTU to \(mtu).")
+let initialConfig = getConfig()
+print("Monitoring GlobalProtect on \(initialConfig.interface), will set MTU to \(initialConfig.mtu).")
+
+// Auto-launch the watcher app if enabled
+if autoLaunch {
+    print("Auto-launch enabled, launching watcher app")
+    launchAppForUser()
+}
+
 setupUnixSocket()
 CFRunLoopRun()
